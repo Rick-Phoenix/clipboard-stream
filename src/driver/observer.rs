@@ -2,10 +2,14 @@ use std::sync::{
   atomic::{AtomicBool, Ordering},
   Arc,
 };
+#[cfg(windows)]
+use std::{collections::HashMap, num::NonZeroU32, path::PathBuf, time::Duration};
 
 use crate::body::BodySenders;
 #[cfg(windows)]
 use crate::error::ClipboardError;
+#[cfg(windows)]
+use crate::mime_type::ImageMimeType;
 #[cfg(target_os = "macos")]
 use crate::sys::macos::OSXSys;
 
@@ -58,90 +62,169 @@ mod macos {
 #[cfg(windows)]
 pub(super) struct WinObserver {
   stop: Arc<AtomicBool>,
-  pub(super) monitor: clipboard_win::Monitor,
+  monitor: clipboard_win::Monitor,
+  html_format: Option<clipboard_win::formats::Html>,
+  png_format: Option<NonZeroU32>,
+  rtf_format: Option<NonZeroU32>,
+  custom_formats: HashMap<Arc<str>, NonZeroU32>,
+  interval: Duration,
 }
 
 #[cfg(windows)]
 impl WinObserver {
-  pub(super) fn new(stop: Arc<AtomicBool>, monitor: clipboard_win::Monitor) -> Self {
-    WinObserver { stop, monitor }
+  pub(super) fn new(
+    stop: Arc<AtomicBool>,
+    monitor: clipboard_win::Monitor,
+    custom_formats: Vec<Arc<str>>,
+    interval: Option<Duration>,
+  ) -> Self {
+    let html_format = clipboard_win::formats::Html::new();
+    let png_format = clipboard_win::register_format("PNG");
+    let rtf_format = clipboard_win::register_format("Rich Text Format");
+
+    let custom_formats_map: HashMap<Arc<str>, NonZeroU32> = custom_formats
+      .into_iter()
+      .filter_map(|name| {
+        if let Some(id) = clipboard_win::register_format(name.as_ref()) {
+          Some((name, id))
+        } else {
+          eprintln!("[ ERROR ] Failed to register custom clipboard type `{name}`");
+          None
+        }
+      })
+      .collect();
+
+    WinObserver {
+      stop,
+      monitor,
+      html_format,
+      png_format,
+      rtf_format,
+      custom_formats: custom_formats_map,
+      interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
+    }
   }
 
-  pub(super) fn extract_image_bytes() -> Option<Vec<u8>> {
+  pub(super) fn extract_image_bytes(&self) -> Option<Vec<u8>> {
+    use clipboard_win::formats;
+
+    if let Some(png_code) = self.png_format
+      && let Ok(bytes) = clipboard_win::get(formats::RawData(png_code.get()))
+    {
+      eprintln!("Found png");
+      Some(bytes)
+    } else if let Ok(bytes) = clipboard_win::get(formats::RawData(formats::CF_DIBV5)) {
+      eprintln!("Found dibv5");
+      Some(bytes)
+    } else {
+      clipboard_win::get(formats::RawData(formats::CF_DIB)).ok()
+    }
+  }
+
+  pub(super) fn extract_files_list() -> Option<Vec<PathBuf>> {
     use clipboard_win::{formats, Getter};
 
-    let mut image_bytes: Vec<u8> = Vec::new();
-    if let Ok(_num_bytes) = formats::Bitmap.read_clipboard(&mut image_bytes) {
-      Some(image_bytes)
+    let mut files_list: Vec<PathBuf> = Vec::new();
+    if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
+      Some(files_list)
     } else {
       None
     }
   }
 
-  pub(super) fn get_clipboard_content() -> Result<Vec<crate::Body>, ClipboardError> {
-    use std::path::PathBuf;
-
+  pub(super) fn get_clipboard_content(&self) -> Result<crate::Body, ClipboardError> {
     use clipboard_win::{formats, Clipboard, Getter};
 
     use crate::{body::ClipboardImage, Body};
 
-    let mut bodies: Vec<Body> = Vec::with_capacity(1);
-
     let _clipboard =
       Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
-    let mut file_list: Vec<PathBuf> = Vec::new();
-    if let Ok(num_files) = formats::FileList.read_clipboard(&mut file_list) {
-      if num_files == 1
-        && file_list[0].extension().is_some_and(|ext| {
-          let image_extensions = ["png", "jpg", "jpeg", "webp", "bmp", "gif", "svg", "ico"];
-          image_extensions.contains(&ext.to_string_lossy().as_ref())
-        })
-      {
-        let image_path = file_list.remove(0);
-
-        let bytes = if let Some(bytes_from_clipboard) = Self::extract_image_bytes() {
-          Some(bytes_from_clipboard)
-        } else {
-          // Rare case, we try to read the bytes ourselves
-          std::fs::read(&image_path).ok()
-        };
-
-        if let Some(bytes) = bytes {
-          use crate::MimeType;
-
-          bodies.push(Body::Image(ClipboardImage {
-            bytes,
-            path: Some(image_path),
-            // Map this more accurately
-            mime: MimeType::ImagePng,
-          }));
-        } else {
-          // In the rare case that we have no bytes at all, we pass it as a normal path
-          bodies.push(Body::FileList(file_list));
-        }
-      } else {
-        bodies.push(Body::FileList(file_list));
-      }
-    } else if let Some(image_bytes) = Self::extract_image_bytes() {
-      // Rare scenario, image bytes with no path
-
-      use crate::MimeType;
-      bodies.push(Body::Image(ClipboardImage {
-        bytes: image_bytes,
-        path: None,
-        // Map this more accurately
-        mime: MimeType::ImagePng,
-      }));
-    } else {
-      // Falling back to a string
-      let mut text = String::new();
-      if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
-        bodies.push(Body::Utf8String(text));
+    for (name, id) in self.custom_formats.iter() {
+      if let Ok(bytes) = clipboard_win::get(formats::RawData(id.get())) {
+        return Ok(Body::Custom {
+          name: name.clone(),
+          data: bytes,
+        });
       }
     }
 
-    Ok(bodies)
+    if let Some(image_bytes) = self.extract_image_bytes() {
+      let image_path = if let Some(mut files_list) = Self::extract_files_list()
+        && files_list.len() == 1
+      {
+        Some(files_list.remove(0))
+      } else {
+        None
+      };
+
+      let mime_type = image_path
+        .as_ref()
+        .and_then(|path| {
+          // We try with the extension first
+          if let Some(ext) = path.extension() {
+            ImageMimeType::from_ext(ext)
+          } else {
+            // Otherwise, we try reading the file
+            mimetype_detector::detect_file(path)
+              .ok()
+              .map(|mime| ImageMimeType::from_name(mime.mime()))
+          }
+        })
+        // Falling back to octet-stream in any case
+        .unwrap_or_else(|| ImageMimeType::Unknown("application/octet-stream".to_string()));
+
+      Ok(Body::Image(ClipboardImage {
+        bytes: image_bytes,
+        path: image_path,
+        mime: mime_type,
+      }))
+    } else if let Some(mut files_list) = Self::extract_files_list() {
+      // Trying to detect if the single file is just an image
+      if files_list.len() == 1
+        && let Some((bytes, mime)) = files_list
+          .first()
+          .unwrap()
+          .extension()
+          // Check if the extension is supported
+          .and_then(ImageMimeType::from_ext)
+          // If it is, try to read the bytes
+          .and_then(|mime| {
+            if let Ok(bytes) = std::fs::read(files_list.first().unwrap()) {
+              Some((bytes, mime))
+            } else {
+              None
+            }
+          })
+      {
+        // Only if we have a valid mime type AND the bytes we proceed with the image
+
+        let image_path = files_list.remove(0);
+
+        Ok(Body::Image(ClipboardImage {
+          mime,
+          bytes,
+          path: Some(image_path),
+        }))
+      } else {
+        Ok(Body::FileList(files_list))
+      }
+    } else {
+      let mut text = String::new();
+      if let Some(html_parser) = self.html_format
+        && let Ok(_) = html_parser.read_clipboard(&mut text)
+      {
+        Ok(Body::Html(text))
+      } else if let Some(rtf_format) = self.rtf_format
+        && let Ok(bytes) = clipboard_win::get(formats::RawData(rtf_format.get()))
+      {
+        Ok(Body::RichText(String::from_utf8_lossy(&bytes).to_string()))
+      } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
+        Ok(Body::PlainText(text))
+      } else {
+        Err(ClipboardError::UnknownDataType)
+      }
+    }
   }
 }
 
@@ -153,18 +236,16 @@ impl Observer for WinObserver {
 
       match monitor.try_recv() {
         Ok(true) => {
-          match WinObserver::get_clipboard_content() {
-            Ok(bodies) => {
-              for body in bodies {
-                body_senders.send_all(Ok(Arc::new(body)));
-              }
+          match self.get_clipboard_content() {
+            Ok(body) => {
+              body_senders.send_all(Ok(Arc::new(body)));
             }
             Err(e) => body_senders.send_all(Err(e)),
           };
         }
         Ok(false) => {
           // No event, waiting
-          std::thread::park_timeout(std::time::Duration::from_millis(200));
+          std::thread::sleep(self.interval);
         }
         Err(e) => {
           body_senders.send_all(Err(ClipboardError::MonitorFailed(e.to_string())));

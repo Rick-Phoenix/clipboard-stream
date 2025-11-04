@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::time::Duration;
 use std::{
   sync::{
     atomic::{AtomicBool, Ordering},
@@ -20,7 +22,11 @@ pub(crate) struct Driver {
 #[cfg(windows)]
 impl Driver {
   /// Construct [`Driver`] and spawn a thread for monitoring clipboard events
-  pub(crate) fn new(body_senders: Arc<BodySenders>) -> Result<Self, ClipboardError> {
+  pub(crate) fn new(
+    body_senders: Arc<BodySenders>,
+    interval: Option<Duration>,
+    custom_formats: Vec<impl AsRef<str>>,
+  ) -> Result<Self, ClipboardError> {
     use std::sync::mpsc;
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -29,6 +35,11 @@ impl Driver {
 
     let (init_tx, init_rx) = mpsc::sync_channel(0);
 
+    let thread_safe_formats_list: Vec<Arc<str>> = custom_formats
+      .into_iter()
+      .map(|f| f.as_ref().into())
+      .collect();
+
     // spawn OS thread
     // observe clipboard change event and send item
     let handle = std::thread::spawn(move || {
@@ -36,7 +47,8 @@ impl Driver {
         Ok(monitor) => {
           init_tx.send(Ok(())).unwrap();
 
-          let mut observer = observer::WinObserver::new(stop_cl, monitor);
+          let mut observer =
+            observer::WinObserver::new(stop_cl, monitor, thread_safe_formats_list, interval);
 
           // event change observe loop
           observer.observe(body_senders);

@@ -59,6 +59,7 @@ version = "0.2.1"
 dependencies = [
  "clipboard-win",
  "futures",
+ "mimetype-detector",
  "objc2",
  "objc2-app-kit",
  "serde",
@@ -209,6 +210,12 @@ name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
+
+[[package]]
+name = "mimetype-detector"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e825170cc144800aa3a949f2260e26d54e67010eb81db98c3c128367d87936ee"
 
 [[package]]
 name = "miniz_oxide"

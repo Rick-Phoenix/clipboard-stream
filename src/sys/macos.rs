@@ -2,7 +2,7 @@
 use objc2::rc::Retained;
 use objc2_app_kit::{NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeString};
 
-use crate::{Body, MimeType};
+use crate::Body;
 
 pub(crate) struct OSXSys {
   inner: Retained<NSPasteboard>,

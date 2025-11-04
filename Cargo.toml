@@ -15,6 +15,7 @@ keywords = ["clipboard"]
 futures = "0.3"
 thiserror = "2"
 serde = { version = "1", optional = true, features = ["derive", "rc"] }
+mimetype-detector = "=0.2.6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }

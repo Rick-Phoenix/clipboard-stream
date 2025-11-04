@@ -45,6 +45,7 @@ mod body;
 mod driver;
 pub mod error;
 mod event_listener;
+pub mod mime_type;
 mod stream;
 mod sys;
 

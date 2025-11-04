@@ -17,6 +17,9 @@ pub enum ClipboardError {
 
   #[error("Failed to read the clipboard: {0}")]
   ReadError(String),
+
+  #[error("Failed to read the clipboard: unknown data type")]
+  UnknownDataType,
 }
 
 pub type ClipboardResult = Result<Arc<Body>, ClipboardError>;
