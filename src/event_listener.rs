@@ -1,8 +1,11 @@
 #[cfg(target_os = "macos")]
 use std::convert::Infallible;
-use std::sync::{
-  atomic::{AtomicUsize, Ordering},
-  Arc,
+use std::{
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
+  time::Duration,
 };
 
 use futures::channel::mpsc;
@@ -25,17 +28,45 @@ pub struct ClipboardEventListener {
   id: AtomicUsize,
 }
 
-impl ClipboardEventListener {
-  /// Creates a new [`ClipboardEventListener`] that monitors clipboard changes in a dedicated OS thread.
-  pub fn spawn() -> Result<Self, ClipboardError> {
+pub struct ClipboardEventListenerBuilder {
+  pub(crate) interval: Option<Duration>,
+  pub(crate) custom_formats: Vec<String>,
+}
+
+impl ClipboardEventListenerBuilder {
+  pub fn interval(mut self, duration: Duration) -> Self {
+    self.interval = Some(duration);
+    self
+  }
+
+  pub fn with_custom_formats(mut self, formats: Vec<String>) -> Self {
+    self.custom_formats = formats;
+    self
+  }
+
+  pub fn spawn(self) -> Result<ClipboardEventListener, ClipboardError> {
     let body_senders = Arc::new(BodySenders::new());
 
-    let driver = Driver::new(body_senders.clone())?;
+    let driver = Driver::new(body_senders.clone(), self.interval, self.custom_formats)?;
     Ok(ClipboardEventListener {
       driver: Some(driver),
       body_senders,
       id: AtomicUsize::new(0),
     })
+  }
+}
+
+impl ClipboardEventListener {
+  pub fn builder() -> ClipboardEventListenerBuilder {
+    ClipboardEventListenerBuilder {
+      interval: None,
+      custom_formats: vec![],
+    }
+  }
+
+  /// Creates a new [`ClipboardEventListener`] that monitors clipboard changes in a dedicated OS thread.
+  pub fn spawn() -> Result<Self, ClipboardError> {
+    Self::builder().spawn()
   }
 
   /// Creates a [`ClipboardStream`] for receiving clipboard change items as [`Body`].

@@ -22,7 +22,7 @@ async fn main() {
 
   while let Some(content) = stream.next().await {
     match content {
-      Body::Utf8String(text) => {
+      Body::PlainText(text) => {
         println!("got string: {}", text);
       }
       Body::Image {

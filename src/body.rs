@@ -6,23 +6,26 @@ use std::{
 
 use futures::channel::mpsc::Sender;
 
+use crate::mime_type::ImageMimeType;
 use crate::{error::ClipboardResult, stream::StreamId};
 
 /// Various kind of clipboard items.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(untagged))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Body {
-  /// UTF-8 encoded String.
-  Utf8String(String),
-  /// Image type. It consist of [`MimeType`] and [`Vec<u8>`].
+  Html(String),
+  PlainText(String),
+  RichText(String),
   Image(ClipboardImage),
   FileList(Vec<PathBuf>),
+  Custom { name: Arc<str>, data: Vec<u8> },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClipboardImage {
-  pub mime: MimeType,
+  pub mime: ImageMimeType,
   pub bytes: Vec<u8>,
   pub path: Option<PathBuf>,
 }
@@ -31,13 +34,6 @@ impl ClipboardImage {
   pub fn has_path(&self) -> bool {
     self.path.is_some()
   }
-}
-
-/// Indicates the media type of the [`Body`] variant.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub enum MimeType {
-  ImagePng,
 }
 
 #[derive(Debug)]

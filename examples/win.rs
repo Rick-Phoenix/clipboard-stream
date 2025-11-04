@@ -11,14 +11,18 @@ async fn main() {
     match result {
       Ok(content) => {
         match content.as_ref() {
-          Body::Utf8String(v) => println!("got string: {}", v),
+          Body::PlainText(v) => println!("Received string:\n{v}"),
           Body::Image(image) => {
             println!("Received image");
             if let Some(path) = &image.path {
               println!("Image Path: {path:#?}");
             }
+            println!("Image mime: {}", image.mime);
           }
           Body::FileList(files) => println!("Received files: {files:#?}"),
+          Body::Html(html) => println!("Received html: \n{html}"),
+          Body::RichText(text) => println!("Received rich text:\n{text}"),
+          _ => {}
         };
       }
       Err(e) => eprintln!("{e}"),
