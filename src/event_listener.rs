@@ -31,6 +31,8 @@ pub struct ClipboardEventListener {
 pub struct ClipboardEventListenerBuilder {
   pub(crate) interval: Option<Duration>,
   pub(crate) custom_formats: Vec<String>,
+  pub(crate) max_image_bytes: Option<usize>,
+  pub(crate) max_bytes: Option<usize>,
 }
 
 impl ClipboardEventListenerBuilder {
@@ -44,10 +46,26 @@ impl ClipboardEventListenerBuilder {
     self
   }
 
+  pub fn max_image_size(mut self, max_bytes: usize) -> Self {
+    self.max_image_bytes = Some(max_bytes);
+    self
+  }
+
+  pub fn max_size(mut self, max_bytes: usize) -> Self {
+    self.max_bytes = Some(max_bytes);
+    self
+  }
+
   pub fn spawn(self) -> Result<ClipboardEventListener, ClipboardError> {
     let body_senders = Arc::new(BodySenders::new());
 
-    let driver = Driver::new(body_senders.clone(), self.interval, self.custom_formats)?;
+    let driver = Driver::new(
+      body_senders.clone(),
+      self.interval,
+      self.custom_formats,
+      self.max_image_bytes,
+      self.max_bytes,
+    )?;
     Ok(ClipboardEventListener {
       driver: Some(driver),
       body_senders,
@@ -61,6 +79,8 @@ impl ClipboardEventListener {
     ClipboardEventListenerBuilder {
       interval: None,
       custom_formats: vec![],
+      max_image_bytes: None,
+      max_bytes: None,
     }
   }
 

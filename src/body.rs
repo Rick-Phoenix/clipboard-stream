@@ -6,7 +6,6 @@ use std::{
 
 use futures::channel::mpsc::Sender;
 
-use crate::mime_type::ImageMimeType;
 use crate::{error::ClipboardResult, stream::StreamId};
 
 /// Various kind of clipboard items.
@@ -25,7 +24,6 @@ pub enum Body {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClipboardImage {
-  pub mime: ImageMimeType,
   pub bytes: Vec<u8>,
   pub path: Option<PathBuf>,
 }

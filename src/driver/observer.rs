@@ -25,6 +25,18 @@ pub(super) struct OSXObserver {
   sys: OSXSys,
 }
 
+#[cfg(windows)]
+fn extract_clipboard_format(format_id: u32, max_size: Option<usize>) -> Option<Vec<u8>> {
+  use clipboard_win::formats;
+
+  // We check if the format is available at all
+  clipboard_win::size(format_id)
+    // Then, whether the size is within the allowed range
+    .filter(|size| max_size.is_none_or(|max| max > size.get()))
+    // Then, if the data can be read
+    .and_then(|_| clipboard_win::get(formats::RawData(format_id)).ok())
+}
+
 #[cfg(target_os = "macos")]
 mod macos {
   impl OSXObserver {
@@ -68,6 +80,8 @@ pub(super) struct WinObserver {
   rtf_format: Option<NonZeroU32>,
   custom_formats: HashMap<Arc<str>, NonZeroU32>,
   interval: Duration,
+  max_image_bytes: Option<usize>,
+  max_bytes: Option<usize>,
 }
 
 #[cfg(windows)]
@@ -77,6 +91,8 @@ impl WinObserver {
     monitor: clipboard_win::Monitor,
     custom_formats: Vec<Arc<str>>,
     interval: Option<Duration>,
+    max_image_bytes: Option<usize>,
+    max_bytes: Option<usize>,
   ) -> Self {
     let html_format = clipboard_win::formats::Html::new();
     let png_format = clipboard_win::register_format("PNG");
@@ -94,6 +110,12 @@ impl WinObserver {
       })
       .collect();
 
+    let max_image_bytes = if max_image_bytes.is_none() && max_bytes.is_some() {
+      max_bytes
+    } else {
+      max_image_bytes
+    };
+
     WinObserver {
       stop,
       monitor,
@@ -102,34 +124,48 @@ impl WinObserver {
       rtf_format,
       custom_formats: custom_formats_map,
       interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
+      max_image_bytes,
+      max_bytes,
     }
   }
 
   pub(super) fn extract_image_bytes(&self) -> Option<Vec<u8>> {
     use clipboard_win::formats;
 
+    use crate::image::convert_dib_to_png;
+
+    let max_image_bytes = self.max_image_bytes;
+
     if let Some(png_code) = self.png_format
-      && let Ok(bytes) = clipboard_win::get(formats::RawData(png_code.get()))
+      && let Some(png_bytes) = extract_clipboard_format(png_code.get(), max_image_bytes)
     {
-      eprintln!("Found png");
-      Some(bytes)
-    } else if let Ok(bytes) = clipboard_win::get(formats::RawData(formats::CF_DIBV5)) {
-      eprintln!("Found dibv5");
-      Some(bytes)
-    } else {
-      clipboard_win::get(formats::RawData(formats::CF_DIB)).ok()
-    }
-  }
-
-  pub(super) fn extract_files_list() -> Option<Vec<PathBuf>> {
-    use clipboard_win::{formats, Getter};
-
-    let mut files_list: Vec<PathBuf> = Vec::new();
-    if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
-      Some(files_list)
+      Some(png_bytes)
+    } else if let Some(bytes) = extract_clipboard_format(formats::CF_DIBV5, max_image_bytes)
+      && let Some(png_bytes) = convert_dib_to_png(&bytes)
+    {
+      Some(png_bytes)
+    } else if let Some(bytes) = extract_clipboard_format(formats::CF_DIB, max_image_bytes)
+      && let Some(png_bytes) = convert_dib_to_png(&bytes)
+    {
+      Some(png_bytes)
     } else {
       None
     }
+  }
+
+  pub(super) fn extract_files_list(max_size: Option<usize>) -> Option<Vec<PathBuf>> {
+    use clipboard_win::{formats, Getter};
+
+    clipboard_win::size(formats::FileList.into())
+      .filter(|size| max_size.is_none_or(|max| max > size.get()))
+      .and_then(|_| {
+        let mut files_list: Vec<PathBuf> = Vec::new();
+        if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
+          Some(files_list)
+        } else {
+          None
+        }
+      })
   }
 
   pub(super) fn get_clipboard_content(&self) -> Result<crate::Body, ClipboardError> {
@@ -140,8 +176,10 @@ impl WinObserver {
     let _clipboard =
       Clipboard::new_attempts(10).map_err(|e| ClipboardError::ReadError(e.to_string()))?;
 
+    let max_bytes = self.max_bytes;
+
     for (name, id) in self.custom_formats.iter() {
-      if let Ok(bytes) = clipboard_win::get(formats::RawData(id.get())) {
+      if let Some(bytes) = extract_clipboard_format(id.get(), max_bytes) {
         return Ok(Body::Custom {
           name: name.clone(),
           data: bytes,
@@ -150,7 +188,7 @@ impl WinObserver {
     }
 
     if let Some(image_bytes) = self.extract_image_bytes() {
-      let image_path = if let Some(mut files_list) = Self::extract_files_list()
+      let image_path = if let Some(mut files_list) = Self::extract_files_list(max_bytes)
         && files_list.len() == 1
       {
         Some(files_list.remove(0))
@@ -158,51 +196,30 @@ impl WinObserver {
         None
       };
 
-      let mime_type = image_path
-        .as_ref()
-        .and_then(|path| {
-          // We try with the extension first
-          if let Some(ext) = path.extension() {
-            ImageMimeType::from_ext(ext)
-          } else {
-            // Otherwise, we try reading the file
-            mimetype_detector::detect_file(path)
-              .ok()
-              .map(|mime| ImageMimeType::from_name(mime.mime()))
-          }
-        })
-        // Falling back to octet-stream in any case
-        .unwrap_or_else(|| ImageMimeType::Unknown("application/octet-stream".to_string()));
-
       Ok(Body::Image(ClipboardImage {
         bytes: image_bytes,
         path: image_path,
-        mime: mime_type,
       }))
-    } else if let Some(mut files_list) = Self::extract_files_list() {
+    } else if let Some(mut files_list) = Self::extract_files_list(max_bytes) {
       // Trying to detect if the single file is just an image
-      if files_list.len() == 1
-        && let Some((bytes, mime)) = files_list
-          .first()
-          .unwrap()
-          .extension()
-          // Check if the extension is supported
-          .and_then(ImageMimeType::from_ext)
-          // If it is, try to read the bytes
-          .and_then(|mime| {
-            if let Ok(bytes) = std::fs::read(files_list.first().unwrap()) {
-              Some((bytes, mime))
-            } else {
-              None
-            }
-          })
-      {
-        // Only if we have a valid mime type AND the bytes we proceed with the image
+      use crate::image::file_is_image;
 
+      // We check if there is just one file
+      if files_list.len() == 1
+        && let Some(path) = files_list.first()
+
+        // Then, if it's an image
+        && file_is_image(path)
+        // Then, if the size is within the allowed range
+        && max_bytes.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
+        // Then, if the bytes are readable
+        && let Ok(bytes) =  std::fs::read(path)
+      //
+      // Only if all of these are true, we save it as an image
+      {
         let image_path = files_list.remove(0);
 
         Ok(Body::Image(ClipboardImage {
-          mime,
           bytes,
           path: Some(image_path),
         }))
