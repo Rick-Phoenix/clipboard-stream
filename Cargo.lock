@@ -185,6 +185,7 @@ dependencies = [
  "clipboard-win",
  "futures",
  "image",
+ "log",
  "objc2",
  "objc2-app-kit",
  "serde",

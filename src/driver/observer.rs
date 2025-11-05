@@ -1,3 +1,5 @@
+use log::debug;
+use log::error;
 use std::sync::{
   atomic::{AtomicBool, Ordering},
   Arc,
@@ -104,13 +106,15 @@ impl WinObserver {
         if let Some(id) = clipboard_win::register_format(name.as_ref()) {
           Some((name, id))
         } else {
-          eprintln!("[ ERROR ] Failed to register custom clipboard type `{name}`");
+          log::error!("Failed to register custom clipboard type `{name}`");
           None
         }
       })
       .collect();
 
     let max_image_bytes = if max_image_bytes.is_none() && max_bytes.is_some() {
+      debug!("Using global size limit for images...");
+
       max_bytes
     } else {
       max_image_bytes
@@ -139,14 +143,19 @@ impl WinObserver {
     if let Some(png_code) = self.png_format
       && let Some(png_bytes) = extract_clipboard_format(png_code.get(), max_image_bytes)
     {
+      debug!("Loaded png from clipboard");
       Some(png_bytes)
     } else if let Some(bytes) = extract_clipboard_format(formats::CF_DIBV5, max_image_bytes)
       && let Some(png_bytes) = convert_dib_to_png(&bytes)
     {
+      debug!("Loaded DIBV5 from clipboard");
+
       Some(png_bytes)
     } else if let Some(bytes) = extract_clipboard_format(formats::CF_DIB, max_image_bytes)
       && let Some(png_bytes) = convert_dib_to_png(&bytes)
     {
+      debug!("Loaded DIB from clipboard");
+
       Some(png_bytes)
     } else {
       None
@@ -214,10 +223,12 @@ impl WinObserver {
         // Then, if the size is within the allowed range
         && max_bytes.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
         // Then, if the bytes are readable and the conversion to png is successful
-        && let Ok(png_bytes) = convert_file_to_png(path)
+        && let Some(png_bytes) = convert_file_to_png(path)
       //
       // Only if all of these are true, we save it as an image
       {
+        debug!("Found file path with image format. Processing it as an image...");
+
         let image_path = files_list.remove(0);
 
         Ok(Body::Image(ClipboardImage {
@@ -232,12 +243,18 @@ impl WinObserver {
       if let Some(html_parser) = self.html_format
         && let Ok(_) = html_parser.read_clipboard(&mut text)
       {
+        debug!("Extracted HTML content from clipboard");
+
         Ok(Body::Html(text))
       } else if let Some(rtf_format) = self.rtf_format
         && let Ok(bytes) = clipboard_win::get(formats::RawData(rtf_format.get()))
       {
+        debug!("Extracted Rich Text from clipboard");
+
         Ok(Body::RichText(String::from_utf8_lossy(&bytes).to_string()))
       } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
+        debug!("Extracted plain text from clipboard");
+
         Ok(Body::PlainText(text))
       } else {
         Err(ClipboardError::UnknownDataType)
@@ -258,7 +275,11 @@ impl Observer for WinObserver {
             Ok(body) => {
               body_senders.send_all(Ok(Arc::new(body)));
             }
-            Err(e) => body_senders.send_all(Err(e)),
+            Err(e) => {
+              error!("{e}");
+
+              body_senders.send_all(Err(e));
+            }
           };
         }
         Ok(false) => {
@@ -266,7 +287,11 @@ impl Observer for WinObserver {
           std::thread::sleep(self.interval);
         }
         Err(e) => {
-          body_senders.send_all(Err(ClipboardError::MonitorFailed(e.to_string())));
+          let error = ClipboardError::MonitorFailed(e.to_string());
+
+          error!("{error}");
+
+          body_senders.send_all(Err(error));
           // Irrecoverable error, end the stream
           break;
         }
