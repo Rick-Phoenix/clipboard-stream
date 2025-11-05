@@ -201,8 +201,9 @@ impl WinObserver {
         path: image_path,
       }))
     } else if let Some(mut files_list) = Self::extract_files_list(max_bytes) {
-      // Trying to detect if the single file is just an image
-      use crate::image::file_is_image;
+      // If there is just one file in the list and it's an image,
+      // we save it directly as an image
+      use crate::image::{convert_file_to_png, file_is_image};
 
       // We check if there is just one file
       if files_list.len() == 1
@@ -212,15 +213,15 @@ impl WinObserver {
         && file_is_image(path)
         // Then, if the size is within the allowed range
         && max_bytes.is_none_or(|max| path.metadata().is_ok_and(|metadata| max as u64 > metadata.len()))
-        // Then, if the bytes are readable
-        && let Ok(bytes) =  std::fs::read(path)
+        // Then, if the bytes are readable and the conversion to png is successful
+        && let Ok(png_bytes) = convert_file_to_png(path)
       //
       // Only if all of these are true, we save it as an image
       {
         let image_path = files_list.remove(0);
 
         Ok(Body::Image(ClipboardImage {
-          bytes,
+          bytes: png_bytes,
           path: Some(image_path),
         }))
       } else {
