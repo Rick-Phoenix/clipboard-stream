@@ -26,6 +26,8 @@ impl Driver {
     body_senders: Arc<BodySenders>,
     interval: Option<Duration>,
     custom_formats: Vec<impl AsRef<str>>,
+    max_image_bytes: Option<usize>,
+    max_bytes: Option<usize>,
   ) -> Result<Self, ClipboardError> {
     use std::sync::mpsc;
 
@@ -47,8 +49,14 @@ impl Driver {
         Ok(monitor) => {
           init_tx.send(Ok(())).unwrap();
 
-          let mut observer =
-            observer::WinObserver::new(stop_cl, monitor, thread_safe_formats_list, interval);
+          let mut observer = observer::WinObserver::new(
+            stop_cl,
+            monitor,
+            thread_safe_formats_list,
+            interval,
+            max_image_bytes,
+            max_bytes,
+          );
 
           // event change observe loop
           observer.observe(body_senders);

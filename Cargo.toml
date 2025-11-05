@@ -16,6 +16,7 @@ futures = "0.3"
 thiserror = "2"
 serde = { version = "1", optional = true, features = ["derive", "rc"] }
 mimetype-detector = "=0.2.6"
+image = { version = "0.25", features = ["serde"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
