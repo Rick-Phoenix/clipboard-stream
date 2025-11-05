@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::channel::mpsc::Sender;
+use log::error;
 
 use crate::{error::ClipboardResult, stream::StreamId};
 
@@ -64,7 +65,7 @@ impl BodySenders {
     for sender in senders.values_mut() {
       match sender.try_send(result.clone()) {
         Ok(_) => {}
-        Err(e) => eprintln!("An error occurred while trying to send the clipboard data: {e}"),
+        Err(e) => error!("Failed to send the clipboard data: {e}"),
       };
     }
   }

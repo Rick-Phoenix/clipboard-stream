@@ -1,4 +1,4 @@
-use image::ImageError;
+use log::error;
 use std::{io::Cursor, path::Path};
 
 use image::{DynamicImage, ImageFormat, codecs::bmp::BmpDecoder};
@@ -17,19 +17,37 @@ pub(crate) fn convert_dib_to_png(dib_bytes: &[u8]) -> Option<Vec<u8>> {
   {
     Some(png_buffer)
   } else {
+    error!("Failed to convert dib to png");
     None
   }
 }
 
-pub(crate) fn convert_file_to_png(path: &Path) -> Result<Vec<u8>, ImageError> {
-  let file_bytes = std::fs::read(path)?;
+pub(crate) fn convert_file_to_png(path: &Path) -> Option<Vec<u8>> {
+  let file_bytes = std::fs::read(path)
+    .inspect_err(|e| {
+      error!(
+        "Failed to read the contents of file `{}`: {e}",
+        path.display()
+      )
+    })
+    .ok()?;
 
-  let dynamic_image = image::load_from_memory(&file_bytes)?;
+  let dynamic_image = image::load_from_memory(&file_bytes)
+    .inspect_err(|e| {
+      error!(
+        "Failed to create image from contents of file `{}`: {e}",
+        path.display()
+      )
+    })
+    .ok()?;
 
   let mut png_buffer = Vec::new();
-  dynamic_image.write_to(&mut Cursor::new(&mut png_buffer), ImageFormat::Png)?;
+  dynamic_image
+    .write_to(&mut Cursor::new(&mut png_buffer), ImageFormat::Png)
+    .inspect_err(|e| error!("Failed to convert file `{}` to a png: {e}", path.display()))
+    .ok()?;
 
-  Ok(png_buffer)
+  Some(png_buffer)
 }
 
 const IMAGE_FORMATS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico"];
