@@ -46,7 +46,6 @@ mod driver;
 pub mod error;
 mod event_listener;
 pub(crate) mod image;
-pub mod mime_type;
 mod stream;
 mod sys;
 

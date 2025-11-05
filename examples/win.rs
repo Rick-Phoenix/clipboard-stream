@@ -17,7 +17,6 @@ async fn main() {
             if let Some(path) = &image.path {
               println!("Image Path: {path:#?}");
             }
-            println!("Image mime: {}", image.mime);
           }
           Body::FileList(files) => println!("Received files: {files:#?}"),
           Body::Html(html) => println!("Received html: \n{html}"),
