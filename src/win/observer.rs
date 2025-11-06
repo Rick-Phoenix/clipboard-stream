@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use clipboard_win::{formats, Clipboard, Getter};
-use log::{debug, error};
+use log::{debug, error, info};
 
 use crate::{
   body::{BodySenders, ClipboardImage},
@@ -150,9 +150,9 @@ impl WinObserver {
         let mut files_list: Vec<PathBuf> = Vec::new();
         if let Ok(_num_files) = formats::FileList.read_clipboard(&mut files_list) {
           if files_list.is_empty() {
-            log::debug!("Found files list, but the list was empty. Skipping it...");
             Err(ExtractionError::EmptyContent)
           } else {
+            debug!("Found file list");
             Ok(Some(files_list))
           }
         } else {
@@ -168,6 +168,8 @@ impl WinObserver {
 
     for (name, id) in self.custom_formats.iter() {
       if let Some(bytes) = Self::extract_clipboard_format(id.get(), max_bytes)? {
+        debug!("Found content with custom format `{name}`");
+
         return Ok(Some(Body::Custom {
           name: name.clone(),
           data: bytes,
@@ -252,9 +254,16 @@ impl WinObserver {
       // Found content
       Ok(Some(content)) => Ok(Some(content)),
       // Non-fatal errors, we just return None
-      Err(ExtractionError::EmptyContent) => Ok(None),
-      Err(ExtractionError::SizeTooLarge) => Ok(None),
+      Err(ExtractionError::EmptyContent) => {
+        debug!("Found empty content, skipping it...");
+        Ok(None)
+      }
+      Err(ExtractionError::SizeTooLarge) => {
+        debug!("Found content beyond allowed size, skipping it...");
+        Ok(None)
+      }
 
+      // Actual error, we send it
       Err(ExtractionError::ConversionError) => Err(ClipboardError::ImageConversion),
       // There was content but we could not read it
       Ok(None) => Err(ClipboardError::NoMatchingFormat),
@@ -265,6 +274,8 @@ impl WinObserver {
 impl Observer for WinObserver {
   fn observe(&mut self, body_senders: Arc<BodySenders>) {
     while !self.stop.load(Ordering::Relaxed) {
+      info!("Started monitoring the clipboard");
+
       let monitor = &mut self.monitor;
 
       match monitor.try_recv() {
@@ -292,7 +303,8 @@ impl Observer for WinObserver {
           error!("{error}");
 
           body_senders.send_all(Err(error));
-          // Irrecoverable error, end the stream
+
+          error!("Fatal error, terminating clipboard watcher");
           break;
         }
       }
