@@ -18,7 +18,6 @@ pub(super) struct WinObserver {
   monitor: clipboard_win::Monitor,
   html_format: Option<clipboard_win::formats::Html>,
   png_format: Option<NonZeroU32>,
-  rtf_format: Option<NonZeroU32>,
   custom_formats: HashMap<Arc<str>, NonZeroU32>,
   interval: Duration,
   max_image_size: Option<usize>,
@@ -65,7 +64,6 @@ impl WinObserver {
   ) -> Self {
     let html_format = clipboard_win::formats::Html::new();
     let png_format = clipboard_win::register_format("PNG");
-    let rtf_format = clipboard_win::register_format("Rich Text Format");
 
     let custom_formats_map: HashMap<Arc<str>, NonZeroU32> = custom_formats
       .into_iter()
@@ -92,7 +90,6 @@ impl WinObserver {
       monitor,
       html_format,
       png_format,
-      rtf_format,
       custom_formats: custom_formats_map,
       interval: interval.unwrap_or_else(|| Duration::from_millis(200)),
       max_image_size: max_image_bytes,
@@ -228,14 +225,6 @@ impl WinObserver {
         debug!("Extracted HTML content from clipboard");
 
         Ok(Some(Body::Html(text)))
-      } else if let Some(rtf_format) = self.rtf_format
-        && let Ok(bytes) = clipboard_win::get(formats::RawData(rtf_format.get()))
-      {
-        debug!("Extracted Rich Text from clipboard");
-
-        Ok(Some(Body::RichText(
-          String::from_utf8_lossy(&bytes).to_string(),
-        )))
       } else if let Ok(_num_bytes) = formats::Unicode.read_clipboard(&mut text) {
         debug!("Extracted plain text from clipboard");
 
