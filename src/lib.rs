@@ -43,10 +43,14 @@
 //! [`ClipboardStream`]: crate::stream::ClipboardStream
 mod body;
 mod driver;
+pub mod error;
 mod event_listener;
 mod stream;
 mod sys;
 
-pub use crate::body::{Body, MimeType};
-pub use crate::event_listener::ClipboardEventListener;
-pub use crate::stream::{ClipboardStream, StreamId};
+pub use stream::{ClipboardStream, StreamId};
+
+pub use crate::{
+  body::{Body, MimeType},
+  event_listener::ClipboardEventListener,
+};

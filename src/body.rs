@@ -1,62 +1,79 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+  collections::HashMap,
+  path::PathBuf,
+  sync::{Arc, Mutex},
 };
 
 use futures::channel::mpsc::Sender;
 
-use crate::stream::StreamId;
+use crate::{error::ClipboardResult, stream::StreamId};
 
 /// Various kind of clipboard items.
-#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Body {
-    /// UTF-8 encoded String.
-    Utf8String(String),
-    /// Image type. It consist of [`MimeType`] and [`Vec<u8>`].
-    #[cfg(target_os = "macos")]
-    Image { mime: MimeType, data: Vec<u8> },
+  /// UTF-8 encoded String.
+  Utf8String(String),
+  /// Image type. It consist of [`MimeType`] and [`Vec<u8>`].
+  Image(ClipboardImage),
+  FileList(Vec<PathBuf>),
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ClipboardImage {
+  pub mime: MimeType,
+  pub bytes: Vec<u8>,
+  pub path: Option<PathBuf>,
+}
+
+impl ClipboardImage {
+  pub fn has_path(&self) -> bool {
+    self.path.is_some()
+  }
 }
 
 /// Indicates the media type of the [`Body`] variant.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum MimeType {
-    ImagePng,
+  ImagePng,
 }
 
 #[derive(Debug)]
 pub(crate) struct BodySenders {
-    senders: Mutex<HashMap<StreamId, Sender<Body>>>,
+  senders: Mutex<HashMap<StreamId, Sender<ClipboardResult>>>,
 }
 
 impl BodySenders {
-    pub(crate) fn new() -> Self {
-        BodySenders {
-            senders: Mutex::default(),
-        }
+  pub(crate) fn new() -> Self {
+    BodySenders {
+      senders: Mutex::default(),
     }
+  }
 
-    /// Register Sender that was specified [`StreamId`].
-    pub(crate) fn register(&self, id: StreamId, tx: Sender<Body>) {
-        let mut gurad = self.senders.lock().unwrap();
-        gurad.insert(id, tx);
+  /// Register Sender that was specified [`StreamId`].
+  pub(crate) fn register(&self, id: StreamId, tx: Sender<ClipboardResult>) {
+    let mut guard = self.senders.lock().unwrap();
+    guard.insert(id, tx);
+  }
+
+  /// Close channel and unregister sender that was specified [`StreamId`]
+  fn unregister(&self, id: &StreamId) {
+    let mut guard = self.senders.lock().unwrap();
+    guard.remove(id);
+  }
+
+  pub(crate) fn send_all(&self, result: ClipboardResult) {
+    let mut senders = self.senders.lock().unwrap();
+
+    for sender in senders.values_mut() {
+      match sender.try_send(result.clone()) {
+        Ok(_) => {}
+        Err(e) => eprintln!("An error occurred while trying to send the clipboard data: {e}"),
+      };
     }
-
-    /// Close channel and unregister sender that was specified [`StreamId`]
-    fn unregister(&self, id: &StreamId) {
-        let mut gurad = self.senders.lock().unwrap();
-        gurad.remove(id);
-    }
-
-    pub(crate) fn send_all(&self, body: Body) {
-        let mut senders = self.senders.lock().unwrap();
-
-        for sender in senders.values_mut() {
-            let body_c = body.clone();
-            if let Err(e) = sender.try_send(body_c) {
-                eprintln!("{}", e);
-            }
-        }
-    }
+  }
 }
 
 /// Handler for Cleaning up buffer(channel).
@@ -66,11 +83,11 @@ impl BodySenders {
 pub(crate) struct BodySendersDropHandle(Arc<BodySenders>);
 
 impl BodySendersDropHandle {
-    pub(crate) fn new(senders: Arc<BodySenders>) -> Self {
-        BodySendersDropHandle(senders)
-    }
+  pub(crate) fn new(senders: Arc<BodySenders>) -> Self {
+    BodySendersDropHandle(senders)
+  }
 
-    pub(crate) fn drop(&self, id: &StreamId) {
-        self.0.unregister(id);
-    }
+  pub(crate) fn drop(&self, id: &StreamId) {
+    self.0.unregister(id);
+  }
 }
