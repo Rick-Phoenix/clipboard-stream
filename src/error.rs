@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::Body;
 
+/// Various kinds of errors that can occur while monitoring or reading the clipboard.
 #[derive(Clone, Debug, Error)]
 pub enum ClipboardError {
   #[error("Failed to start clipboard monitor: {0}")]

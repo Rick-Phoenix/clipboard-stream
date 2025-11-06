@@ -19,12 +19,15 @@ use crate::{
 /// Clipboard event change listener.
 ///
 /// Listen for clipboard change events and notifies [`ClipboardStream`].
+///
+/// Use the [`builder`](ClipboardEventListener::builder) method to customize the options for the listener.
 pub struct ClipboardEventListener {
   driver: Option<Driver>,
   body_senders: Arc<BodySenders>,
   id: AtomicUsize,
 }
 
+/// The builder for the [`ClipboardEventListener`]. It can be used to specify more customized options such as the polling interval, or a list of custom clipboard formats.
 pub struct ClipboardEventListenerBuilder {
   pub(crate) interval: Option<Duration>,
   pub(crate) custom_formats: Vec<Arc<str>>,
@@ -33,11 +36,17 @@ pub struct ClipboardEventListenerBuilder {
 }
 
 impl ClipboardEventListenerBuilder {
+  /// Defines the polling interval for the clipboard monitoring. If unset, it defaults to 200 milliseconds.
   pub fn interval(mut self, duration: Duration) -> Self {
     self.interval = Some(duration);
     self
   }
 
+  /// Adds a list of custom clipboard formats to the list of formats to monitor.
+  ///
+  /// In cases where a clipboard item can match more than one format in this list, only the first will be selected.
+  ///
+  /// Custom formats are always extracted with a higher priority than normal formats. See [`Body`](crate::Body) for more information about the extraction priority.
   pub fn with_custom_formats<I, S>(mut self, formats: I) -> Self
   where
     I: IntoIterator<Item = S>,
@@ -47,16 +56,23 @@ impl ClipboardEventListenerBuilder {
     self
   }
 
+  /// Sets a maximum allowed size for images. If an image is larger than the given size, it will not be processed.
+  ///
+  /// If this is unset, but [`max_size`](Self::max_size) is set, the latter will be used as the size limit.
   pub fn max_image_size(mut self, max_bytes: usize) -> Self {
     self.max_image_bytes = Some(max_bytes);
     self
   }
 
+  /// Sets a maximum allowed size limit. It only applies to custom formats (or to images, if [`max_image_size`](Self::max_image_size) is unset).
+  ///
+  /// If a clipboard item is larger than the given size, it will not be processed.
   pub fn max_size(mut self, max_bytes: usize) -> Self {
     self.max_bytes = Some(max_bytes);
     self
   }
 
+  /// Spawns the [`ClipboardEventListener`].
   pub fn spawn(self) -> Result<ClipboardEventListener, ClipboardError> {
     let body_senders = Arc::new(BodySenders::new());
 
@@ -76,6 +92,7 @@ impl ClipboardEventListenerBuilder {
 }
 
 impl ClipboardEventListener {
+  /// Creates an instance of a [`ClipboardEventListenerBuilder`], which can be used to specify custom options for the listener.
   pub fn builder() -> ClipboardEventListenerBuilder {
     ClipboardEventListenerBuilder {
       interval: None,
@@ -86,6 +103,8 @@ impl ClipboardEventListener {
   }
 
   /// Creates a new [`ClipboardEventListener`] that monitors clipboard changes in a dedicated OS thread.
+  ///
+  /// Uses all of the default options.
   pub fn spawn() -> Result<Self, ClipboardError> {
     Self::builder().spawn()
   }
