@@ -9,7 +9,19 @@ use log::error;
 
 use crate::{error::ClipboardResult, stream::StreamId};
 
-/// Various kind of clipboard items.
+/// The content extracted from the clipboard.
+///
+/// To avoid extracting all types of content each time, only one of them is chosen, in the following order of priority:
+///
+/// - Custom formats (in the order they are given, if present)
+/// - Image (see [`ClipboardImage`] for more info)
+/// - File list
+/// - HTML
+/// - Plain text
+///
+/// When a clipboard item can fit more than one of these formats, only the one with the highest priority will be chosen.
+///
+/// When selecting a single image as a file, the item will be processed as an Image (with a defined file path), falling back to a single-item file list in case the processing of the image goes wrong.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(untagged))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -21,14 +33,18 @@ pub enum Body {
   Custom { name: Arc<str>, data: Vec<u8> },
 }
 
+/// An image from the clipboard, normalized to the PNG format.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClipboardImage {
+  /// The bytes that compose the image, encoded in the PNG format.
   pub bytes: Vec<u8>,
+  /// The path to the image's file (if one can be detected).
   pub path: Option<PathBuf>,
 }
 
 impl ClipboardImage {
+  /// Checks whether the clipboard has a file path attached to it.
   pub fn has_path(&self) -> bool {
     self.path.is_some()
   }
