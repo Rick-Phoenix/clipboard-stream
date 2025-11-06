@@ -3,27 +3,33 @@ name = "clipboard-stream"
 version = "0.2.1"
 edition = "2024"
 readme = "README.md"
-repository = "https://github.com/nakaryo716/clipboard-stream" 
-license = "MIT" 
+repository = "https://github.com/nakaryo716/clipboard-stream"
+license = "MIT"
 description = """
 Async stream of clipboard change events
 """
-documentation = "https://docs.rs/clipboard-stream" 
+documentation = "https://docs.rs/clipboard-stream"
 keywords = ["clipboard"]
-
-[package.metadata.docs.rs]
-default-target = "aarch64-apple-darwin"
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
 
 [dependencies]
 futures = "0.3"
-objc2 = "0.6.2"
-objc2-app-kit = "0.3"
+thiserror = "2"
+serde = { version = "1", optional = true, features = ["derive", "rc"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 futures = { version = "0.3", features = ["executor"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.2"
+objc2-app-kit = "0.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+clipboard-win = { version = "5.4", features = ["monitor", "std"] }
+
 [[example]]
 name = "stream"
 path = "examples/stream.rs"
+
+[features]
+serde = ["dep:serde"]
