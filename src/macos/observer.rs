@@ -7,7 +7,7 @@ use std::{
   time::Duration,
 };
 
-use log::{debug, warn};
+use log::{debug, error, info};
 use objc2::{
   ClassType,
   rc::{Retained, autoreleasepool},
@@ -69,6 +69,8 @@ impl Observer for OSXObserver {
     let interval = self.interval;
 
     while !self.stop.load(Ordering::Relaxed) {
+      info!("Started monitoring the clipboard");
+
       std::thread::sleep(interval);
 
       let change_count = self.get_change_count();
@@ -78,7 +80,10 @@ impl Observer for OSXObserver {
 
         match self.get_clipboard_content() {
           Ok(Some(content)) => body_senders.send_all(Ok(Arc::new(content))),
-          Err(e) => body_senders.send_all(Err(e)),
+          Err(e) => {
+            error!("{e}");
+            body_senders.send_all(Err(e));
+          }
           // Found content but ignored it (empty or beyond allowed size)
           Ok(None) => {}
         }
@@ -111,10 +116,6 @@ impl OSXObserver {
           // Check the size limit. If exceeded, return Err to signal an early exit.
           if let Some(limit) = max_size {
             if size > limit {
-              warn!(
-                "Data for type '{}' of size {} bytes exceeds limit of {} bytes. Aborting.",
-                format_type, size, limit
-              );
               return Err(ExtractionError::SizeTooLarge);
             }
           }
@@ -163,6 +164,7 @@ impl OSXObserver {
           // Found list but it was empty, trigger early exit
           Err(ExtractionError::EmptyContent)
         } else {
+          debug!("Found file list");
           Ok(Some(files))
         }
       }
@@ -208,6 +210,8 @@ impl OSXObserver {
           let rust_string = string.to_string();
           if !rust_string.is_empty() {
             return Ok(Some(rust_string));
+          } else {
+            return Err(ExtractionError::EmptyContent);
           }
         }
       }
@@ -224,6 +228,8 @@ impl OSXObserver {
         let format_nsstring = NSString::from_str(name.as_ref());
         // For custom formats, we check the size as well as the presence
         if let Some(bytes) = self.extract_clipboard_format(&format_nsstring, max_size)? {
+          debug!("Found content with custom format `{name}`");
+
           return Ok(Some(Body::Custom {
             name: name.clone(),
             data: bytes,
@@ -272,12 +278,15 @@ impl OSXObserver {
         }
       } else {
         if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
+          debug!("Extracted HTML content from clipboard");
           return Ok(Some(Body::Html(html)));
         }
         if let Some(rtf) = unsafe { self.string_from_type(NSPasteboardTypeRTF)? } {
+          debug!("Extracted Rich Text from clipboard");
           return Ok(Some(Body::RichText(rtf)));
         }
         if let Some(plain) = unsafe { self.string_from_type(NSPasteboardTypeString)? } {
+          debug!("Extracted plain text from clipboard");
           return Ok(Some(Body::PlainText(plain)));
         }
 
@@ -291,9 +300,16 @@ impl OSXObserver {
       // Found content
       Ok(Some(content)) => Ok(Some(content)),
       // Non-fatal errors, we just return None
-      Err(ExtractionError::EmptyContent) => Ok(None),
-      Err(ExtractionError::SizeTooLarge) => Ok(None),
+      Err(ExtractionError::EmptyContent) => {
+        debug!("Found empty content, skipping it...");
+        Ok(None)
+      }
+      Err(ExtractionError::SizeTooLarge) => {
+        debug!("Found content beyond allowed size, skipping it...");
+        Ok(None)
+      }
 
+      // Actual error, we send it
       Err(ExtractionError::ConversionError) => Err(ClipboardError::ImageConversion),
       // There was content but we could not read it
       Ok(None) => Err(ClipboardError::NoMatchingFormat),
