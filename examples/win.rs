@@ -22,7 +22,6 @@ async fn main() {
           }
           Body::FileList(files) => println!("Received files: {files:#?}"),
           Body::Html(html) => println!("Received html: \n{html}"),
-          Body::RichText(text) => println!("Received rich text:\n{text}"),
           _ => {}
         };
       }

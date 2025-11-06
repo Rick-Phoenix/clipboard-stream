@@ -13,7 +13,7 @@ use objc2::{
   rc::{Retained, autoreleasepool},
 };
 use objc2_app_kit::{
-  NSPasteboard, NSPasteboardType, NSPasteboardTypeHTML, NSPasteboardTypePNG, NSPasteboardTypeRTF,
+  NSPasteboard, NSPasteboardType, NSPasteboardTypeHTML, NSPasteboardTypePNG,
   NSPasteboardTypeString, NSPasteboardTypeTIFF, NSPasteboardURLReadingFileURLsOnlyKey,
 };
 use objc2_foundation::{NSArray, NSData, NSDictionary, NSNumber, NSString, NSURL};
@@ -280,10 +280,6 @@ impl OSXObserver {
         if let Some(html) = unsafe { self.string_from_type(NSPasteboardTypeHTML)? } {
           debug!("Extracted HTML content from clipboard");
           return Ok(Some(Body::Html(html)));
-        }
-        if let Some(rtf) = unsafe { self.string_from_type(NSPasteboardTypeRTF)? } {
-          debug!("Extracted Rich Text from clipboard");
-          return Ok(Some(Body::RichText(rtf)));
         }
         if let Some(plain) = unsafe { self.string_from_type(NSPasteboardTypeString)? } {
           debug!("Extracted plain text from clipboard");

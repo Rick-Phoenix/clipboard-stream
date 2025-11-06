@@ -16,7 +16,6 @@ use crate::{error::ClipboardResult, stream::StreamId};
 pub enum Body {
   Html(String),
   PlainText(String),
-  RichText(String),
   Image(ClipboardImage),
   FileList(Vec<PathBuf>),
   Custom { name: Arc<str>, data: Vec<u8> },
